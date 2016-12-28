@@ -31,7 +31,7 @@ queries. The idea here is that I will have a list of type-level strings that
 are nodes. And these type-level strings will have constraints (instances). This
 would be known statically at compile time.
 
-We need a graph abstraction to proceed.
+We need a graph abstraction to proceed. This is confusing at first I know.
 
 > class MuRef a where
 >   type DeRef a = :: a -> a
@@ -39,6 +39,15 @@ We need a graph abstraction to proceed.
 >            => (a -> f u)
 >            -> a
 >            -> f (DeRef a u)
+
+A type family is a thing we can extend later, lke type classes, where we have
+asscociated types that are also type families. All the types are family, you
+get it.
+
+It's applicative because McBride and Patterson 2006. The threading of the
+effect of unique name generation.
+
+Which I claim has been done at the type level! 
 
 DeRef records the graph structure of our computation. It allows us to
 recursively descend into madness.
@@ -121,15 +130,10 @@ framework.
 Also we store a thing that represents a globally unique name! Maybe it is
 globally unique, good luck hashes! This is so that we can explode nicely if the
 user lies to us and doesn't write the same value twice, or tries to re-write
-history. Now we can write them a really stern letter...
+history. Now we can write them a really stern letter... The address would be 
 
-OK moving on: Think of a cell as a networkey thing that can compute things.
-Propogators promise stuff... that like ST, computing these things is
-deterministic. That means we can assume that you only are only accessing data
-locally, because we're passing in your tubes for you.
-
-I know I'm not explaining this well. Proceed, revisit. Ekmett says: a Cell is
-information about a value but not a value itself. Hope that helps.
+Ekmett says: a Cell is information about a value but not a value itself. Hope
+that helps.
 
 > data Cell s a = (a -> a -> Change a) (References Process (Change a)
 
@@ -145,26 +149,47 @@ Modelling it as a lattice!
 
 A propogator is this thing, right. It is nothing, given a place to exist.
 
-> type Comp s a = (forall s. Computation s a-> Change s a)
+> type Comp s a = Process a-> Change s a)
 
-That is to say that if we inject information into the network, it can't know
-about the present computation, all sharing should have been done before!
-
->    Nullary :: (forall s. Cell s a -> Cell a) -> SharingIsCaring s a
-
-
-However, if we want local performance metrics avaliable as shared-state across
-a cluster-wide computation, we need to encode a relationship into the (join
-semi)-lattice! Lattice from now on.
+We wish to say that if we inject information into the network, it can't know
+about the present computation, all sharing should have been done before! Does it?
 
 TODO: picture
     
 A propogation is just a mapping which is monotonically preserving BLAH.....
 It's like a tree of metrics ok? But sideways, it's a lattice. And we want to
 map connections between nodes: 
+Anyway, here's a type ekmett had:
 
->    Unary :: Propagated b => (Cell s a -> Node s b -> s ()) -> Prop s a -> Prop s b
->    Binary  :: Propagated c => (Node s a -> Node s b -> Node s c ->  s ()) -> Prop s a -> Prop s b -> Prop s c
+-- | This type allows us to write seemingly normal functional code and glue it together out of smaller
+-- propagator templates. Evaluation of these expressions uses <www.ittc.ku.edu/~andygill/papers/reifyGraph.pdf Observable Sharing>.
+--
+-- * 'Nullary' lifts a computation that will produce a 'Cell' into a 'Prop'.
+--
+-- * 'Unary' lifts a relationship between 2 cells into 'Prop'.
+--
+-- * 'Binary' lifts a relationship between 3 cells into 'Prop'.
+data Prop s a where
+  Nullary :: ST s (Cell s a) -> Prop s a
+  Unary   :: Propagated b => (Cell s a -> Cell s b -> ST s ()) -> Prop s a -> Prop s b
+  Binary  :: Propagated c => (Cell s a -> Cell s b -> Cell s c -> ST s ()) -> Prop s a -> Prop s b -> Prop s c
+
+> type Computation s a = Process a
+> data Prop s a where
+>   Nullary :: Computation s (Cell s a) -> Prop s a
+>   Unary :: Propagated b => (Cell s a -> Cell s b -> Computation s ()) -> Prop s a -> Prop s b
+
+SUSPEND YOUR DISBELIEF. We are just building a tree in abstract space.
+
+>   Binary  :: Propagated c => (Cell s a -> Cell s b -> Cell s c -> Computation s ()) -> Prop s a -> Prop s b -> Prop s c
+
+We will de-construct this structure later, and it will tell us how the
+computation is wired up.
+
+If we want local performance metrics avaliable as shared-state across a
+cluster-wide computation, we need to encode a relationship into the (join
+semi)-lattice! Lattice from now on.
+
 
 \quote{
     We can also use a 2 watched literal scheme to kill a propagator and garbage
@@ -178,11 +203,15 @@ map connections between nodes:
 
 Note, this could also be read: time to alert!
 
+We can weave niceities like:
+
 instance (PropagatedNum a, Eq a, Num a) => Num (Prop s a) where
 
-
 A sensor collection point, a distributed computation collaborator
->
+
+Question: How do we adress peers? I trust cloud haskell's solution, not so much
+hashing.
+
 > data Node = 
 
 > data NamedChunk = NamedChunk Name ByteString -- E.G. chunk of PCP (performance co-pilot) metrics. We can transform this for the user to provide history lookups, but want to track these computations themselves in the language (not our meta-language).
